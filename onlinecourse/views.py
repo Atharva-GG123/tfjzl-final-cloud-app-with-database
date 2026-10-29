@@ -134,3 +134,75 @@ def extract_answers(request):
 
 
 
+@login_required
+def submit(request, course_id):
+    course = get_object_or_404(Course, id=course_id)
+
+    if request.method != "POST":
+        return redirect("onlinecourse:course_details", course_id=course.id)
+
+    enrollment = Enrollment.objects.filter(
+        course=course,
+        user=request.user
+    ).first()
+
+    if enrollment is None:
+        return redirect("onlinecourse:course_details", course_id=course.id)
+
+    submission = Submission.objects.create(enrollment=enrollment)
+
+    questions = Question.objects.filter(lesson__course=course)
+
+    for question in questions:
+        selected_id = request.POST.get(f"question_{question.id}")
+
+        if selected_id:
+            choice = Choice.objects.filter(
+                id=selected_id,
+                question=question
+            ).first()
+
+            if choice:
+                submission.choices.add(choice)
+
+    return redirect(
+        "onlinecourse:show_exam_result",
+        submission_id=submission.id
+    )
+
+
+@login_required
+def show_exam_result(request, submission_id):
+    submission = get_object_or_404(
+        Submission,
+        id=submission_id,
+        enrollment__user=request.user
+    )
+
+    course = submission.enrollment.course
+
+    questions = Question.objects.filter(lesson__course=course)
+    correct_choices = submission.choices.filter(is_correct=True)
+
+    score = sum(
+        choice.question.points
+        for choice in correct_choices
+    )
+
+    max_score = sum(question.points for question in questions)
+
+    percentage = round(score * 100 / max_score, 2) if max_score else 0
+
+    return render(
+        request,
+        "onlinecourse/exam_result_bootstrap.html",
+        {
+            "course": course,
+            "submission": submission,
+            "score": score,
+            "max_score": max_score,
+            "percentage": percentage,
+            "questions": questions,
+        }
+    )
+
